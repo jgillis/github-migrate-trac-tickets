@@ -52,6 +52,7 @@ usage = """
 parser = OptionParser(usage=usage)
 parser.add_option('-q', '--quiet', action="store_true", default=False,
                   help='Decrease logging of activity')
+parser.add_option('-c', '--component', default=None, help='Component to migrate, default all')
 
 (options, args) = parser.parse_args()
 try:
@@ -128,6 +129,8 @@ for name, description, due, completed in milestones:
 
 tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status FROM ticket ORDER BY id') # LIMIT 5
 for tid, summary, description, owner, milestone, component, status in tickets:
+    if options.component and options.component != component:
+        continue
     logging.info("Ticket %d: %s" % (tid, summary))
     if description:
         description = description.strip()
