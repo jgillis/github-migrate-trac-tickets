@@ -18,6 +18,7 @@ import logging
 from optparse import OptionParser
 import sqlite3
 import re
+from itertools import chain
 
 from github import GitHub
 
@@ -43,18 +44,29 @@ class Trac(object):
     def close(self):
         self.conn.close()
 
-def get_author_mapping(map_file):
+class AuthorMapping(object):
     """Take provided file and return author mapping object"""
-    mapping = {}
-    with open(map_file, 'r') as map_file:
-        for line in map_file.readlines():
-	    match = re.compile(r'^([\w\s\@&\.\d]*) = (\w*) <(.*)>$', re.MULTILINE)
-	    if not match:
-	        raise ValueError, 'Author line not in correct format: "%s"' % line
-	svn_user, github_user, email = match.groups()
-	mapping[svn_user.strip()] = {"login" : github_user.strip()}
-	# Ignore email for now, seems username is eough
-    return mapping
+    def __init__(self, map_file):
+        self.mapping = {}
+	if map_file:
+            with open(map_file, 'r') as file_:
+                for line in file_.readlines():
+                    if not line.strip():
+                        continue
+	            match = re.compile(r'^([\w\s\@&\.\d]*) = (\w*) <(.*)>$').search(line)
+	            if not match:
+	                raise ValueError, 'Author line not in correct format: "%s"' % line
+	            svn_user, github_user, email = match.groups()
+	            self.mapping[svn_user.strip()] = {"login" : github_user.strip()}
+	        # Ignore email for now, seems username is eough
+
+    def __call__(self, username):
+        if not self.mapping:
+		return {"login" : username}
+	# just take 1st user if given a list
+        username = username.split(',')[0].strip()
+        # Throw if author not in mapping
+	return self.mapping[username]
 
 
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
@@ -68,7 +80,7 @@ parser = OptionParser(usage=usage)
 parser.add_option('-q', '--quiet', action="store_true", default=False,
                   help='Decrease logging of activity')
 parser.add_option('-c', '--component', default=None, help='Component to migrate, default all')
-parser.add_option('-j', '--json', default=False, help='Output to json files for github import, default to direct upload')
+parser.add_option('-j', '--json', action="store_true", default=False, help='Output to json files for github import, default to direct upload')
 parser.add_option('--authors-file', default=None, help='Author mapping file, if not specified take usernames from trac as given')
 
 (options, args) = parser.parse_args()
@@ -92,27 +104,23 @@ else:
     github = GitHub(github_username, github_password, github_repo)
 
 # default to no mapping
-author_mapping = lambda author: {"login" : author}
-# if needed populate mapping object
-if options.author_file:
-    author_mapping = get_author_mapping(options.author_file)
+author_mapping = AuthorMapping(options.authors_file)
 
 # Show the Trac usernames assigned to tickets as an FYI
 
-logging.info("Getting Trac ticket owners (will NOT be mapped to GitHub username)...")
-for (username,) in trac.sql('SELECT DISTINCT owner FROM ticket'):
-    if username:
-        username = username.strip() # username returned is tuple like: ('phred',)
-        logging.debug("Trac ticket owner: %s" % username)
-
+#logging.info("Getting Trac ticket owners (will NOT be mapped to GitHub username)...")
+#for (username,) in trac.sql('SELECT DISTINCT owner FROM ticket'):
+#    if username:
+#        username = username.split(',')[0].strip() # username returned is tuple like: ('phred',)
+#        logging.debug("Trac ticket owner: %s" % username)
 
 # Get GitHub labels; we'll merge Trac components into them
 
-logging.info("Getting existing GitHub labels...")
-labels = {}
-for label in github.labels():
-    labels[label['name']] = label['url'] # ignoring 'color'
-    logging.debug("label name=%s" % label['name'])
+#logging.info("Getting existing GitHub labels...")
+#labels = {}
+#for label in github.labels():
+#    labels[label['name']] = label['url'] # ignoring 'color'
+#    logging.debug("label name=%s" % label['name'])
 
 # Get any existing GitHub milestones so we can merge Trac into them.
 # We need to reference them by numeric ID in tickets.
@@ -133,7 +141,7 @@ milestone_id = {}
 # The 'due' and 'completed' are long ints representing datetimes.
 
 logging.info("Migrating Trac milestones to GitHub...")
-milestones = trac.sql('SELECT id, name, description, due, completed FROM milestone')
+milestones = trac.sql('SELECT name, description, due, completed FROM milestone')
 for name, description, due, completed in milestones:
     name = name.strip()
     logging.debug("milestone name=%s due=%s completed=%s" % (name, due, completed))
@@ -150,8 +158,8 @@ for name, description, due, completed in milestones:
             milestone['due_on'] = datetime.datetime.fromtimestamp(
                 due / 1000 / 1000).isoformat()
         logging.debug("milestone: %s" % milestone)
-        gh_milestone = github.milestones(data=milestone)
-        milestone_id['name'] = gh_milestone['number']
+        gh_milestone = github.milestones(id_ = max(chain([0], milestone_id.values())) + 1, data=milestone)
+        milestone_id[name] = gh_milestone['number']
 
 # Copy Trac tickets to GitHub issues, keyed to milestones above
 
@@ -171,25 +179,24 @@ for tid, summary, description, owner, milestone, component, status in tickets:
         m = milestone_id.get(milestone)
         if m:
             issue['milestone'] = m
-    if component:
+    # Dont add component as label - only one component in dest repo, so redundant
+    #if component:
         #if component not in labels:
         #    # GitHub creates the 'url' and 'color' fields for us
         #    github.labels(data={'name': component})
         #    labels[component] = 'CREATED' # keep track of it so we don't re-create it
         #    logging.debug("adding component as new label=%s" % component)
         #issue['labels'] = [component]
-	issue['labels'] = [{'name' : componenet}]
+	#issue['labels'] = [{'name' : componenet}]
     # We have to create/map Trac users to GitHub usernames before we can assign
-    # them to tickets; don't see how to do that conveniently now.
-    # if owner.strip():
-    #     ticket['assignee'] = owner.strip()
+    # them to tickets
     if status == 'closed':
         issue['state'] = 'closed'
     if owner:
-        issue['assignee'] = {'login' : owner.split(',')[0].strip()}
+        issue['assignee'] = author_mapping(owner)
 
     # save issue
-    github.issues(data=issue, tid)
+    github.issues(tid, data=issue)
     # Add comments
     comment_data = []
     comments = trac.sql('SELECT author, newvalue AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
@@ -200,10 +207,9 @@ for tid, summary, description, owner, milestone, component, status in tickets:
             if author:
                 body = "[%s] %s" % (author, body)
             logging.debug('issue comment: %s' % body[:40]) # TODO: escape newlines
-	    comment_data.append({'user' : {'login' : author}, 'body' : body})
-    if comments_data:
-        github.issue_comments(tid, data={'body': body})
+	    comment_data.append({'user' : author_mapping(author), 'body' : body})
+
+    if comment_data:
+        github.issue_comments(tid, data=comment_data)
 
 trac.close()
-
-
