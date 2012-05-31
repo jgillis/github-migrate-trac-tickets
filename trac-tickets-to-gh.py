@@ -17,6 +17,7 @@ import datetime
 import logging
 from optparse import OptionParser
 import sqlite3
+import re
 
 from github import GitHub
 
@@ -42,6 +43,20 @@ class Trac(object):
     def close(self):
         self.conn.close()
 
+def get_author_mapping(map_file):
+    """Take provided file and return author mapping object"""
+    mapping = {}
+    with open(map_file, 'r') as map_file:
+        for line in map_file.readlines():
+	    match = re.compile(r'^([\w\s\@&\.\d]*) = (\w*) <(.*)>$', re.MULTILINE)
+	    if not match:
+	        raise ValueError, 'Author line not in correct format: "%s"' % line
+	svn_user, github_user, email = match.groups()
+	mapping[svn_user.strip()] = {"login" : github_user.strip()}
+	# Ignore email for now, seems username is eough
+    return mapping
+
+
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
 usage = """
   %prog [options] trac_db_path github_username github_password github_repo
@@ -54,6 +69,7 @@ parser.add_option('-q', '--quiet', action="store_true", default=False,
                   help='Decrease logging of activity')
 parser.add_option('-c', '--component', default=None, help='Component to migrate, default all')
 parser.add_option('-j', '--json', default=False, help='Output to json files for github import, default to direct upload')
+parser.add_option('--authors-file', default=None, help='Author mapping file, if not specified take usernames from trac as given')
 
 (options, args) = parser.parse_args()
 try:
@@ -74,6 +90,12 @@ if options.json:
     github = GitHubJson(github_repo)
 else:
     github = GitHub(github_username, github_password, github_repo)
+
+# default to no mapping
+author_mapping = lambda author: {"login" : author}
+# if needed populate mapping object
+if options.author_file:
+    author_mapping = get_author_mapping(options.author_file)
 
 # Show the Trac usernames assigned to tickets as an FYI
 
