@@ -53,6 +53,7 @@ parser = OptionParser(usage=usage)
 parser.add_option('-q', '--quiet', action="store_true", default=False,
                   help='Decrease logging of activity')
 parser.add_option('-c', '--component', default=None, help='Component to migrate, default all')
+parser.add_option('-j', '--json', default=False, help='Output to json files for github import, default to direct upload')
 
 (options, args) = parser.parse_args()
 try:
@@ -68,7 +69,11 @@ else:
     logging.basicConfig(level=logging.DEBUG)
 
 trac = Trac(trac_db_path)
-github = GitHub(github_username, github_password, github_repo)
+if options.json:
+    from github_json import GitHubJson
+    github = GitHubJson(github_repo)
+else:
+    github = GitHub(github_username, github_password, github_repo)
 
 # Show the Trac usernames assigned to tickets as an FYI
 
@@ -92,20 +97,21 @@ for label in github.labels():
 # API returns only 'open' issues by default, have to ask for closed like:
 # curl -u 'USER:PASS' https://api.github.com/repos/USERNAME/REPONAME/milestones?state=closed
 
-logging.info("Getting existing GitHub milestones...")
+# Assume no milestones exist in github
+#logging.info("Getting existing GitHub milestones...")
 milestone_id = {}
-for m in github.milestones():
-    milestone_id[m['title']] = m['number']
-    logging.debug("milestone (open)   title=%s" % m['title'])
-for m in github.milestones(query='state=closed'):
-    milestone_id[m['title']] = m['number']
-    logging.debug("milestone (closed) title=%s" % m['title'])
+#for m in github.milestones():
+#    milestone_id[m['title']] = m['number']
+#    logging.debug("milestone (open)   title=%s" % m['title'])
+#for m in github.milestones(query='state=closed'):
+#    milestone_id[m['title']] = m['number']
+#    logging.debug("milestone (closed) title=%s" % m['title'])
 
 # We have no way to set the milestone closed date in GH.
 # The 'due' and 'completed' are long ints representing datetimes.
 
 logging.info("Migrating Trac milestones to GitHub...")
-milestones = trac.sql('SELECT name, description, due, completed FROM milestone')
+milestones = trac.sql('SELECT id, name, description, due, completed FROM milestone')
 for name, description, due, completed in milestones:
     name = name.strip()
     logging.debug("milestone name=%s due=%s completed=%s" % (name, due, completed))
@@ -144,18 +150,26 @@ for tid, summary, description, owner, milestone, component, status in tickets:
         if m:
             issue['milestone'] = m
     if component:
-        if component not in labels:
-            # GitHub creates the 'url' and 'color' fields for us
-            github.labels(data={'name': component})
-            labels[component] = 'CREATED' # keep track of it so we don't re-create it
-            logging.debug("adding component as new label=%s" % component)
-        issue['labels'] = [component]
+        #if component not in labels:
+        #    # GitHub creates the 'url' and 'color' fields for us
+        #    github.labels(data={'name': component})
+        #    labels[component] = 'CREATED' # keep track of it so we don't re-create it
+        #    logging.debug("adding component as new label=%s" % component)
+        #issue['labels'] = [component]
+	issue['labels'] = [{'name' : componenet}]
     # We have to create/map Trac users to GitHub usernames before we can assign
     # them to tickets; don't see how to do that conveniently now.
     # if owner.strip():
     #     ticket['assignee'] = owner.strip()
-    gh_issue = github.issues(data=issue)
+    if status == 'closed':
+        issue['state'] = 'closed'
+    if owner:
+        issue['assignee'] = {'login' : owner.split(',')[0].strip()}
+
+    # save issue
+    github.issues(data=issue, tid)
     # Add comments
+    comment_data = []
     comments = trac.sql('SELECT author, newvalue AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
     for author, body in comments:
         body = body.strip()
@@ -164,13 +178,9 @@ for tid, summary, description, owner, milestone, component, status in tickets:
             if author:
                 body = "[%s] %s" % (author, body)
             logging.debug('issue comment: %s' % body[:40]) # TODO: escape newlines
-            github.issue_comments(gh_issue['number'], data={'body': body})
-    # Close tickets if they need it.
-    # The v3 API says we should use PATCH, but
-    # http://developer.github.com/v3/ says POST is supported.
-    if status == 'closed':
-        github.issues(id_=gh_issue['number'], data={'state': 'closed'})
-        logging.debug("close")
+	    comment_data.append({'user' : {'login' : author}, 'body' : body})
+    if comments_data:
+        github.issue_comments(tid, data={'body': body})
 
 trac.close()
 
