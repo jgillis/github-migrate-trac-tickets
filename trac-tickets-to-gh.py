@@ -106,6 +106,8 @@ else:
 # default to no mapping
 author_mapping = AuthorMapping(options.authors_file)
 
+epoch_to_iso = lambda x: datetime.datetime.fromtimestamp(x).isoformat()
+
 # Show the Trac usernames assigned to tickets as an FYI
 
 #logging.info("Getting Trac ticket owners (will NOT be mapped to GitHub username)...")
@@ -155,16 +157,15 @@ for name, description, due, completed in milestones:
                      'description': description,
                      }
         if due:
-            milestone['due_on'] = datetime.datetime.fromtimestamp(
-                due / 1000 / 1000).isoformat()
+            milestone['due_on'] = epoch_to_iso(due)
         logging.debug("milestone: %s" % milestone)
         gh_milestone = github.milestones(id_ = max(chain([0], milestone_id.values())) + 1, data=milestone)
         milestone_id[name] = gh_milestone['number']
 
 # Copy Trac tickets to GitHub issues, keyed to milestones above
 
-tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status FROM ticket ORDER BY id') # LIMIT 5
-for tid, summary, description, owner, milestone, component, status in tickets:
+tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime FROM ticket ORDER BY id') # LIMIT 5
+for tid, summary, description, owner, milestone, component, status, created_at, updated_at in tickets:
     if options.component and options.component != component:
         continue
     logging.info("Ticket %d: %s" % (tid, summary))
@@ -194,6 +195,10 @@ for tid, summary, description, owner, milestone, component, status in tickets:
         issue['state'] = 'closed'
     if owner:
         issue['assignee'] = author_mapping(owner)
+    if created_at:
+	    issue['created_at'] = epoch_to_iso(created_at)
+    if updated_at:
+	issue['updated_at'] = epoch_to_iso(updated_at)
 
     # save issue
     github.issues(tid, data=issue)
