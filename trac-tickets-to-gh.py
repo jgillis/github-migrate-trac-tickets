@@ -184,9 +184,9 @@ for name, description, due, completed in milestones:
 
 # Copy Trac tickets to GitHub issues, keyed to milestones above
 
-tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime, reporter FROM ticket ORDER BY id') # LIMIT 5
+tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime, reporter, keywords, severity, priority, resolution, type FROM ticket ORDER BY id') # LIMIT 5
 for tid, summary, description, owner, milestone, component, status, \
-         created_at, updated_at, reporter in tickets:
+         created_at, updated_at, reporter, keywords, severity, priority, resolution, type in tickets:
     if options.component and options.component != component:
         continue
     logging.info("Ticket %d: %s" % (tid, summary))
@@ -219,10 +219,20 @@ for tid, summary, description, owner, milestone, component, status, \
     if reporter:
         issue['user'] = author_mapping(reporter)
     if created_at:
-	    issue['created_at'] = epoch_to_iso(created_at)
+	issue['created_at'] = epoch_to_iso(created_at)
     if updated_at:
 	issue['updated_at'] = epoch_to_iso(updated_at)
-
+    issue['labels'] = []
+    if keywords:
+        issue['labels'].extend([{'name' : keyword} for keyword in keywords])
+    if severity:
+	issue['labels'].append({'name' : severity})
+    if priority:
+	issue['labels'].append({'name' : priority})
+    if resolution:
+	issue['labels'].append({'name' : resolution})
+    if type:
+        issue['labels'].append({'name' : type})
     # save issue
     github.issues(tid, data=issue)
     # Add comments
