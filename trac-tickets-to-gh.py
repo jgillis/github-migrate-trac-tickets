@@ -19,6 +19,7 @@ from optparse import OptionParser
 import sqlite3
 import re
 from itertools import chain
+import subprocess
 
 from github import GitHub
 
@@ -71,6 +72,19 @@ class AuthorMapping(object):
         # Throw if author not in mapping
 	return self.mapping[username]
 
+def svn_to_git_commit_id(checkout, svn_id):
+    """Get git commit id for given svn id"""
+    if not checkout:
+        return svn_id
+    p = subprocess.Popen(['git', '--git-dir=%s/.git' % checkout,
+	                 'log', '--grep=^git-svn-id:.*@%s' % svn_id, '--format=format:%H', '-n1' ],
+			 stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+    if not p.wait():
+        out = p.stdout.read().strip()
+	if len(out) == 40:
+	    return out
+    # couldn't find commit
+    return svn_id
 
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
 usage = """
@@ -85,6 +99,7 @@ parser.add_option('-q', '--quiet', action="store_true", default=False,
 parser.add_option('-c', '--component', default=None, help='Component to migrate, default all')
 parser.add_option('-j', '--json', action="store_true", default=False, help='Output to json files for github import, default to direct upload')
 parser.add_option('--authors-file', default=None, help='Author mapping file, if not specified take usernames from trac as given')
+parser.add_option('--checkout', default=None, help='git-svn checkout, used to map svn commits to git commits in tickets. This is slow.')
 
 (options, args) = parser.parse_args()
 try:
@@ -110,6 +125,8 @@ else:
 author_mapping = AuthorMapping(options.authors_file)
 
 epoch_to_iso = lambda x: datetime.datetime.fromtimestamp(x).isoformat()
+
+svn_to_git_mapper = lambda match: svn_to_git_commit_id(options.checkout, match.group(1))
 
 # Show the Trac usernames assigned to tickets as an FYI
 
@@ -214,6 +231,9 @@ for tid, summary, description, owner, milestone, component, status, \
     for author, body in comments:
         body = body.strip()
         if body:
+            # replace svn commit with git one
+	    if options.checkout:
+                body = re.sub(r'In \[(\d+)\]', svn_to_git_mapper, body)
             # prefix comment with author as git doesn't keep them separate
             if author:
                 body = "[%s] %s" % (author, body)
