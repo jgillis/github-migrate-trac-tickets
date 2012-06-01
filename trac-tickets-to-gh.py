@@ -65,6 +65,9 @@ class AuthorMapping(object):
 		return {"login" : username}
 	# just take 1st user if given a list
         username = username.split(',')[0].strip()
+	#if not username in self.mapping:
+        #    print "%s = DMWMBot <USER@DOMAIN>" % username
+	#    return {"login" : username}
         # Throw if author not in mapping
 	return self.mapping[username]
 
@@ -164,8 +167,9 @@ for name, description, due, completed in milestones:
 
 # Copy Trac tickets to GitHub issues, keyed to milestones above
 
-tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime FROM ticket ORDER BY id') # LIMIT 5
-for tid, summary, description, owner, milestone, component, status, created_at, updated_at in tickets:
+tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime, reporter FROM ticket ORDER BY id') # LIMIT 5
+for tid, summary, description, owner, milestone, component, status, \
+         created_at, updated_at, reporter in tickets:
     if options.component and options.component != component:
         continue
     logging.info("Ticket %d: %s" % (tid, summary))
@@ -195,6 +199,8 @@ for tid, summary, description, owner, milestone, component, status, created_at, 
         issue['state'] = 'closed'
     if owner:
         issue['assignee'] = author_mapping(owner)
+    if reporter:
+        issue['user'] = author_mapping(reporter)
     if created_at:
 	    issue['created_at'] = epoch_to_iso(created_at)
     if updated_at:
