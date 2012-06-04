@@ -2,6 +2,24 @@
  GitHub: Migrate Trac Tickets
 ==============================
 
+Forked from https://github.com/koansys/github-migrate-trac-tickets by Stuart Wakefield
+
+Modifications from original
+=================
+* Add --json method to dump tickets as importable json files - see https://gist.github.com/7f75ced1fa7576412901.
+* Exisitng upload functionality should still work, but has not been tested.
+* Can specify component to migrate.
+* Map from trac to github usernames (see --authors-file option).
+* Map svn commit id's to git commits (see --checkout option). Warning: very slow.
+* Map keywords, severity, priority, resolution and type to labels (can be edited in github later if needed).
+* Add ticket reporter.
+* Fix issue with dates and add create and update times for tickets. No timezone conversion.
+* No longer add component to issue labels. Assuming one repo per componenet.
+
+==============================
+Origignal documentation
+==============================
+
 GitHub Issues API
 =================
 
