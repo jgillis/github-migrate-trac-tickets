@@ -243,7 +243,8 @@ for tid, summary, description, owner, milestone, component, status, \
         if body:
             # replace svn commit with git one
 	    if options.checkout:
-                body = re.sub(r'In \[(\d+)\]', svn_to_git_mapper, body)
+                # search for [12345], r12345 changeset formats
+                body = re.sub(r'[r\[](\d+)[\W]', svn_to_git_mapper, body)
             # prefix comment with author as git doesn't keep them separate
             if author:
                 body = "[%s] %s" % (author, body)
