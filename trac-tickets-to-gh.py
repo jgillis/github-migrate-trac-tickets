@@ -237,8 +237,8 @@ for tid, summary, description, owner, milestone, component, status, \
     github.issues(tid, data=issue)
     # Add comments
     comment_data = []
-    comments = trac.sql('SELECT author, newvalue AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
-    for author, body in comments:
+    comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
+    for author, body, timestamp in comments:
         body = body.strip()
         if body:
             # replace svn commit with git one
@@ -248,8 +248,11 @@ for tid, summary, description, owner, milestone, component, status, \
             # prefix comment with author as git doesn't keep them separate
             if author:
                 body = "%s: %s" % (author, body)
+	    if timestamp:
+		timestamp = epoch_to_iso(timestamp)
             logging.debug('issue comment: %s' % body[:40]) # TODO: escape newlines
-	    comment_data.append({'user' : author_mapping(author), 'body' : body})
+	    comment_data.append({'user' : author_mapping(author), 'body' : body, \
+			         'created_at' : timestamp, 'updated_at' : timestamp})
 
     if comment_data:
         github.issue_comments(tid, data=comment_data)
