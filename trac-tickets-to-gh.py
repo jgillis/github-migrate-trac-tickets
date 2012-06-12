@@ -247,7 +247,7 @@ for tid, summary, description, owner, milestone, component, status, \
                 body = re.sub(r'[r\[](\d+)[\W]', svn_to_git_mapper, body)
             # prefix comment with author as git doesn't keep them separate
             if author:
-                body = "[%s] %s" % (author, body)
+                body = "%s: %s" % (author, body)
             logging.debug('issue comment: %s' % body[:40]) # TODO: escape newlines
 	    comment_data.append({'user' : author_mapping(author), 'body' : body})
 
