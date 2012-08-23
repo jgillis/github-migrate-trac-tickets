@@ -8,12 +8,13 @@ except ImportError:
 class GitHub(object):
     """Connections, queries and posts to GitHub.
     """
-    def __init__(self, username, password, repo):
+    def __init__(self, username, password, repo, dry_run=False):
         """Username and password for auth; repo is like 'myorg/myapp'.
         """
         self.username = username
         self.password = password
         self.repo = repo
+        self.dry_run = dry_run
         self.url = "https://api.github.com/repos/%s" % self.repo
         self.auth = base64.encodestring('%s:%s' % (self.username, self.password))[:-1]
 
@@ -25,14 +26,16 @@ class GitHub(object):
         if query:
             path += '?' + query
         url = self.url + path
+        if self.dry_run and data is not None:
+            return
         req = urllib2.Request(url)
         req.add_header("Authorization", "Basic %s" % self.auth)
         try:
             if data:
-                    req.add_header("Content-Type", "application/json")
-                    res = urllib2.urlopen(req, json.dumps(data))
+                req.add_header("Content-Type", "application/json")
+                res = urllib2.urlopen(req, json.dumps(data))
             else:
-                    res =  urllib2.urlopen(req)
+                res = urllib2.urlopen(req)
             return json.load(res)
         except (IOError, urllib2.HTTPError), e:
             raise RuntimeError("Error on url=%s e=%s" % (url, e))
