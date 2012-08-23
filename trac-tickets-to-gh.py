@@ -20,8 +20,11 @@ import sqlite3
 import re
 from itertools import chain
 import subprocess
+from collections import defaultdict, namedtuple
 
 from github import GitHub
+
+Repository = namedtuple('Repository', 'name type rev_map_file')
 
 class Trac(object):
     # We don't have a way to close (potentially nested) cursors
@@ -73,71 +76,49 @@ class AuthorMapping(object):
         return self.mapping[username]
 
 class RevisionMapping(object):
-    def __init__(self, map_file, src_repo_type='svn'):
-        self.mapping = {}
-        self.src_repo_type = src_repo_type
-        if map_file:
-            with open(map_file, 'r') as f:
+    def __init__(self, repo_list):
+        self.mappings = {}
+        self.rx_revlink = re.compile(r'((^|\s)r|\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
+        for repo in repo_list:
+            self.mappings[repo.name] = {}
+            logging.info('Reading revision mapping for "{0}" from {1}'.format(repo.name, repo.rev_map_file))
+            with open(repo.rev_map_file, 'r') as f:
                 for line in f.readlines():
                     src_id, git_id = line.split(' => ')
-                    self.mapping[src_id] = git_id
-                    if src_repo_type == 'hg' or src_repo_type == 'git':
+                    self.mappings[repo.name][src_id] = git_id
+                    if repo.type == 'hg' or repo.type == 'git':
                         # Add shorter keys for abbreviated SHA1 links.
                         # This consumes more memory space, but it would not be a problem
                         # on modern computers.
                         for i in range(6, 12):
-                            self.mapping[src_id[:i]] = git_id
-        if self.src_repo_type == 'svn':
-            # [12345], r12345 changeset formats
-            self.rx_revlink = re.compile(r'( r|\[)(?P<id>[0-9]+)(/(?P<suffix>\w+))?\]?')
-        elif self.src_repo_type == 'hg' or self.src_repo_type == 'git':
-            # include hexademical numbers
-            self.rx_revlink = re.compile(r'( r|\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
-        else:
-            raise NotImplementedError('The repository type %s is not supported.' % self.src_repo_type)
+                            self.mappings[repo.name][src_id[:i]] = git_id
 
     def _sub(self, match):
         src_id = match.group('id')
         repo_suffix = match.group('suffix')
-        if not self.mapping:
-            return '[%s]' % src_id
-        try:
-            git_id = self.mapping[src_id]
-        except KeyError:
-            # ----- Textcube-specific -----
-            if repo_suffix:
-                # Create a link to the read-only archive using Markdwon hyperlink.
-                # TODO: get a mapping from svn to git?
-                return '[{0}/{1}](http://dev.textcube.org/changeset/{0}/{1})'.format(src_id, repo_suffix)
+        if repo_suffix is None:
+            repo_suffix = ''
+        heuristic_tried = defaultdict(bool)
+        while True:
+            try:
+                mapping = self.mappings[repo_suffix]
+            except KeyError:
+                raise ValueError('Unspecified repository suffix: {0}'.format(repo_suffix))
+            try:
+                git_id = mapping[src_id]
+            except KeyError:
+                # ----- Textcube-specific -----
+                if src_id.isdigit() and not heuristic_tried['digit-is-svn']:
+                    repo_suffix = 'old_svn'
+                    heuristic_tried['digit-is-svn'] = True
+                    continue
+                # ----- End of Textcube-specific ----
+                return match.group(0)
             else:
-                if src_id.isdigit():  # heuristic fallback
-                    return '[{0}/{1}](http://dev.textcube.org/changeset/{0}/{1})'.format(src_id, 'old_svn')
-                else:
-                    logging.warning('Could not match the revision ID to git or old repo link: {0}'.format(match.group(0)))
-                    # On errors, leave as it is.
-                    return match.group(0)
-            # ----- End of Textcube-specific -----
-        else:
-            # GitHub will automatically create links for SHA1 commit IDs.
-            return '%s' % git_id
+                return git_id
 
     def convert(self, text):
         return self.rx_revlink.sub(self._sub, text)
-
-    # TODO: deprecate or reuse somehow?
-    def _svn_to_git(svn_id, checkout=False):
-        """Get git commit id for given svn id"""
-        if not checkout:
-            return svn_id
-        p = subprocess.Popen(['git', '--git-dir=%s/.git' % checkout,
-                             'log', '--grep=^git-svn-id:.*@%s' % svn_id, '--format=format:%H', '-n1' ],
-                             stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-        if not p.wait():
-            out = p.stdout.read().strip()
-            if len(out) == 40:
-                return out
-        # couldn't find commit
-        return svn_id
 
 def epoch_to_iso(x):
     iso_ts = datetime.fromtimestamp(x / 1e6).isoformat()
@@ -163,10 +144,12 @@ if __name__ == '__main__':
                       help='Output to json files for github import (default: direct upload)')
     parser.add_option('--authors-file', default=None,
                       help='Author mapping file, if not specified take usernames from trac as given')
-    parser.add_option('--revmap-file', default=None,
-                      help='Revision mapping file')
-    parser.add_option('-t', '--source-repo-type', default='svn',
-                      help='Type of source repository (default: svn)')
+    parser.add_option('--revmap-files', default=None,
+                      help='Comma-separated list of revision mapping files')
+    parser.add_option('--repo-types', default=None,
+                      help='Comma-separated list of repository types')
+    parser.add_option('--repo-names', default=None,
+                      help='Comma-separated list of repository names (empty string means the default one)')
     parser.add_option('-y', '--dry-run', action='store_true', default=False,
                       help='Do not actually post to GitHub, but only show the conversion result. (default: false)')
 
@@ -183,8 +166,20 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.DEBUG)
 
-    if not options.revmap_file:
-        parser.error('You must specify the revision mapping file. (--revmap-file)')
+    if not options.revmap_files:
+        parser.error('You must specify at least one revision mapping file. (--revmap-files)')
+    if not options.repo_types:
+        parser.error('You must specify at least one source repo type. (--repo-types)')
+    if not options.repo_names:
+        parser.error('You must specify at least one source repo name. (--repo-names)')
+    options.revmap_files = options.revmap_files.split(',')
+    options.repo_names = options.repo_names.split(',')
+    options.repo_types = options.repo_types.split(',')
+    assert len(options.repo_names) == len(options.repo_types)
+    assert len(options.repo_names) == len(options.revmap_files)
+    repo_list = []
+    for i, name in enumerate(options.repo_names):
+        repo_list.append(Repository(name, options.repo_types[i], options.revmap_files[i]))
 
     trac = Trac(trac_db_path)
     if options.json:
@@ -196,7 +191,7 @@ if __name__ == '__main__':
 
     # default to no mapping
     author_mapping = AuthorMapping(options.authors_file)
-    rev_mapping = RevisionMapping(options.revmap_file, options.source_repo_type)
+    rev_mapping = RevisionMapping(repo_list)
 
     # Show the Trac usernames assigned to tickets as an FYI
 
