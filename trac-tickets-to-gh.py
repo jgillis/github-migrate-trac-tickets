@@ -87,8 +87,16 @@ class RevisionMapping(object):
                         # on modern computers.
                         for i in range(6, 12):
                             self.mapping[src_id[:i]] = git_id
+        if self.src_repo_type == 'svn':
+            # [12345], r12345 changeset formats
+            self.rx_revlink = re.compile(r'( r|\[)(?P<id>[0-9]+)(/(?P<suffix>\w+))?\]?')
+        elif self.src_repo_type == 'hg' or self.src_repo_type == 'git':
+            # include hexademical numbers
+            self.rx_revlink = re.compile(r'( r|\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
+        else:
+            raise NotImplementedError('The repository type %s is not supported.' % self.src_repo_type)
 
-    def __call__(self, match):
+    def _sub(self, match):
         src_id = match.group('id')
         repo_suffix = match.group('suffix')
         if not self.mapping:
@@ -113,15 +121,8 @@ class RevisionMapping(object):
             # GitHub will automatically create links for SHA1 commit IDs.
             return '%s' % git_id
 
-    def get_regex(self):
-        if self.src_repo_type == 'svn':
-            # [12345], r12345 changeset formats
-            return re.compile(r'( r|\[)(?P<id>[0-9]+)(/(?P<suffix>\w+))?\]?')
-        elif self.src_repo_type == 'hg' or self.src_repo_type == 'git':
-            # include hexademical numbers
-            return re.compile(r'( r|\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
-        else:
-            raise NotImplementedError('The repository type %s is not supported.' % self.src_repo_type)
+    def convert(self, text):
+        return self.rx_revlink.sub(self._sub, text)
 
     # TODO: deprecate or reuse somehow?
     def _svn_to_git(svn_id, checkout=False):
@@ -196,7 +197,6 @@ if __name__ == '__main__':
     # default to no mapping
     author_mapping = AuthorMapping(options.authors_file)
     rev_mapping = RevisionMapping(options.revmap_file, options.source_repo_type)
-    rx_revid = rev_mapping.get_regex()
 
     # Show the Trac usernames assigned to tickets as an FYI
 
@@ -268,7 +268,7 @@ if __name__ == '__main__':
             milestone = milestone.strip()
         issue = {'title': summary}
         if description:
-            issue['body'] = rx_revid.sub(rev_mapping, description)
+            issue['body'] = rev_mapping.convert(description)
         if milestone:
             m = milestone_id.get(milestone)
             if m:
@@ -314,13 +314,13 @@ if __name__ == '__main__':
             body = body.strip()
             if body:
                 # Replace the commit ID with git one
-                body = rx_revid.sub(rev_mapping, body)
+                body = rev_mapping.convert(body)
                 # prefix comment with author as git doesn't keep them separate
                 if author:
                     body = "%s: %s" % (author, body)
                 if timestamp:
                     timestamp = epoch_to_iso(timestamp)
-                logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\n', u'\\n')))
+                logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\r\n', u'\\n').replace(u'\n', u'\\n')))
                 comment_data.append({'user' : author_mapping(author), 'body' : body, \
                                      'created_at' : timestamp, 'updated_at' : timestamp})
 
