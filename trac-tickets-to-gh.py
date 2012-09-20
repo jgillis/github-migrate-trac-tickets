@@ -259,9 +259,9 @@ if __name__ == '__main__':
                 pass
 
     # == Ticket Migration ==
-    tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime, reporter, keywords, severity, priority, resolution, type FROM ticket ORDER BY id') # LIMIT 5
+    tickets = trac.sql('SELECT id, summary, description, owner, milestone, component, status, time, changetime, reporter, keywords, severity, priority, resolution, type FROM ticket ORDER BY id') # LIMIT 5
     for tid, summary, description, owner, milestone, component, status, \
-             created_at, updated_at, reporter, keywords, severity, priority, resolution, type in tickets:
+             created_at, updated_at, reporter, keywords, severity, priority, resolution, type_ in tickets:
         if options.component and options.component != component:
             continue
         logging.info("Ticket %d: %s" % (tid, summary))
@@ -276,21 +276,22 @@ if __name__ == '__main__':
             m = milestone_id.get(milestone)
             if m:
                 issue['milestone'] = m
-        # Dont add component as label - only one component in dest repo, so redundant
+        # Don't add component as label -- only one component in dest repo, so redundant
         #if component:
-            #if component not in labels:
-            #    # GitHub creates the 'url' and 'color' fields for us
-            #    github.labels(data={'name': component})
-            #    labels[component] = 'CREATED' # keep track of it so we don't re-create it
-            #    logging.debug("adding component as new label=%s" % component)
-            #issue['labels'] = [component]
-            #issue['labels'] = [{'name' : componenet}]
+        #    if component not in labels:
+        #        # GitHub creates the 'url' and 'color' fields for us
+        #        github.labels(data={'name': component})
+        #        labels[component] = 'CREATED' # keep track of it so we don't re-create it
+        #        logging.debug("adding component as new label=%s" % component)
+        #    issue['labels'] = [component]
+        #    issue['labels'] = [{'name' : componenet}]
         # We have to create/map Trac users to GitHub usernames before we can assign
         # them to tickets
         if status == 'closed':
             issue['state'] = 'closed'
-        if owner:
-            issue['assignee'] = author_mapping(owner)
+        # TODO: is this broken??
+        #if owner:
+        #    issue['assignee'] = author_mapping(owner)
         if reporter:
             issue['user'] = author_mapping(reporter)
         if created_at:
@@ -299,15 +300,16 @@ if __name__ == '__main__':
             issue['updated_at'] = epoch_to_iso(updated_at)
         issue['labels'] = []
         if keywords:
-            issue['labels'].extend([{'name' : keyword} for keyword in keywords])
+            for keyword in map(lambda k: k.strip(), keywords.split(',')):
+                issue['labels'].append({'name': keyword})
         if severity:
-            issue['labels'].append({'name' : severity})
+            issue['labels'].append({'name': severity})
         if priority:
-            issue['labels'].append({'name' : priority})
+            issue['labels'].append({'name': priority})
         if resolution:
-            issue['labels'].append({'name' : resolution})
-        if type:
-            issue['labels'].append({'name' : type})
+            issue['labels'].append({'name': resolution})
+        if type_:
+            issue['labels'].append({'name': type_})
         # Save issue
         # NOTE: we cannot set the issue number when creating.
         try:
