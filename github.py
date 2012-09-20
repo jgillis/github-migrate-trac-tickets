@@ -35,17 +35,9 @@ class GitHub(object):
         url = self.url + path
         if self.dry_run and data is not None:
             return
-        logger.debug('Requesting url {0}'.format(url))
-        req = urllib2.Request(url)
-        req.add_header("Authorization", "Basic %s" % self.auth)
+        logger.debug('Querying URL: {0}'.format(url))
         try:
-            if data:
-                req.add_header("Content-Type", "application/json")
-                res = urllib2.urlopen(req, json.dumps(data))
-            else:
-                res = urllib2.urlopen(req)
-            # TODO: check rate-limit by response headers: X-RateLimit-Limit & X-RateLimit-Remaining
-            logger.debug('  remaining rate limit: {0}'.format(res.info().getheader('X-RateLimit-Remaining')))
+            res = self._access(url, data)
 
             # Pagination support
             paging = res.info().getheader('Link')
@@ -62,9 +54,7 @@ class GitHub(object):
                         if rel == 'next':
                             next_page = urlparse.parse_qs(page_url.split('?')[1])['page'][0]
                             logger.debug('  requesting page {0} at {1}'.format(next_page, page_url))
-                            req = urllib2.Request(page_url)
-                            req.add_header("Authorization", "Basic %s" % self.auth)
-                            res = urllib2.urlopen(req)
+                            res = self._access(page_url)
                             items.extend(json.load(res))
                             paging = res.info().getheader('Link')
                         elif rel == 'last':
@@ -91,6 +81,21 @@ class GitHub(object):
             raise RuntimeError("HTTPError on url=%s e=%s" % (url, e))
         except IOError as e:
             raise RuntimeError("IOError on url=%s e=%s" % (url, e))
+
+    def _access(self, url, data=None):
+        logger = logging.getLogger(__name__)
+        req = urllib2.Request(url)
+        req.add_header("Authorization", "Basic %s" % self.auth)
+        if data:
+            req.add_header("Content-Type", "application/json")
+            res = urllib2.urlopen(req, json.dumps(data))
+        else:
+            res = urllib2.urlopen(req)
+
+        # TODO: check rate-limit by response headers: X-RateLimit-Limit & X-RateLimit-Remaining
+        logger.debug('  remaining rate limit: {0}'.format(res.info().getheader('X-RateLimit-Remaining')))
+        return res
+
 
     def issues(self, id_=None, query=None, data=None):
         """Get issues or POST and issue with data.
