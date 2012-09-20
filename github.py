@@ -1,9 +1,15 @@
 import base64
 import urllib2
+import logging
 try:
     import json
 except ImportError:
     import simplejson as json
+
+class AlreadyExists(RuntimeError):
+    pass
+class DoesNotExist(RuntimeError):
+    pass
 
 class GitHub(object):
     """Connections, queries and posts to GitHub.
@@ -21,6 +27,7 @@ class GitHub(object):
     def access(self, path, query=None, data=None):
         """Append the API path to the URL GET, or POST if there's data.
         """
+        logger = logging.getLogger(__name__)
         if not path.startswith('/'):
             path = '/' + path
         if query:
@@ -36,9 +43,24 @@ class GitHub(object):
                 res = urllib2.urlopen(req, json.dumps(data))
             else:
                 res = urllib2.urlopen(req)
+            # TODO: check rate-limit by response headers: X-RateLimit-Limit & X-RateLimit-Remaining
             return json.load(res)
-        except (IOError, urllib2.HTTPError), e:
-            raise RuntimeError("Error on url=%s e=%s" % (url, e))
+        except urllib2.HTTPError as e:
+            if e.code == 422:
+                err_info = json.loads(e.read())
+                err_reason = err_info['errors'][0]['code']
+                logger.debug('api validation error: {0}'.format(json.dumps(err_info)))
+                if err_reason == 'already_exists':
+                    raise AlreadyExists('Already exists: {0[resource]}, {0[field]}'.format(err_info['errors'][0]))
+                elif err_reason == 'missing':
+                    raise DoesNotExist('Missing resource: {0[resource]}'.format(err_info['errors'][0]))
+                elif err_reason == 'invalid':
+                    raise ValueError('Invalid field: {0[field]}'.format(err_info['errors'][0]))
+                elif err_reason == 'missing_field':
+                    raise ValueError('Missing field: {0[field]}'.format(err_info['errors'][0]))
+            raise RuntimeError("HTTPERror on url=%s e=%s" % (url, e))
+        except IOError as e:
+            raise RuntimeError("IOError on url=%s e=%s" % (url, e))
 
     def issues(self, id_=None, query=None, data=None):
         """Get issues or POST and issue with data.

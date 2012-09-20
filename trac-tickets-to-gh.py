@@ -23,7 +23,7 @@ from itertools import chain
 import subprocess
 from collections import defaultdict, namedtuple
 
-from github import GitHub
+from github import GitHub, AlreadyExists, DoesNotExist
 
 Repository = namedtuple('Repository', 'name type rev_map_file')
 
@@ -163,9 +163,9 @@ if __name__ == '__main__':
         parser.error('Repo must be specified like "organization/project"')
 
     if options.quiet:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, format='%(levelname)9s: %(message)s')
     else:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG, format='%(levelname)9js: %(message)s')
 
     if not options.revmap_files:
         parser.error('You must specify at least one revision mapping file. (--revmap-files)')
@@ -248,8 +248,16 @@ if __name__ == '__main__':
             logging.debug("milestone: %s" % milestone)
             if options.dry_run:
                 continue
-            gh_milestone = github.milestones(id_ = max(chain([0], milestone_id.values())) + 1, data=milestone)
-            milestone_id[name] = gh_milestone['number']
+            try:
+                gh_milestone = github.milestones(data=milestone)
+                milestone_id[name] = gh_milestone['number']
+            except AlreadyExists:
+                # TODO: Get the number of existing milestone.
+                #       Unfortunately, Github API does not return the "number"
+                #       property of the duplicate.  We need to retrieve the
+                #       whole list and find out by ourselves, but it consume
+                #       the valuable rate limit. :(
+                pass
 
     # Copy Trac tickets to GitHub issues, keyed to milestones above
 
@@ -303,7 +311,8 @@ if __name__ == '__main__':
         if type:
             issue['labels'].append({'name' : type})
         # Save issue
-        github.issues(tid, data=issue)
+        # NOTE: we cannot set the issue number when creating.
+        github.issues(data=issue)
         # Add comments
         comment_data = []
         comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
