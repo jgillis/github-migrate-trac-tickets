@@ -107,14 +107,6 @@ class GitHub(object):
             path += '/' + str(id_)
         return self.access(path, query=query, data=data)
 
-    def issue_comments(self, ticket_id, query=None, data=None):
-        """Get comments for a ticket by its number or POST a comment with data.
-        Example: issue_comments(5, data={'body': 'Is decapitated'})
-        """
-        # This call has no way to get a single comment
-        #TODO: this is BROKEN
-        return self.access('issues/%d/comments' % ticket_id, query=query, data=data)
-
     def labels(self, query=None, data=None):
         """Get labels or POST a label with data.
         Post like: labels(data={'name': 'NewLabel'})

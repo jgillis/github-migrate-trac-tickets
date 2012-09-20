@@ -348,17 +348,8 @@ if __name__ == '__main__':
         #    issue['labels'] = [{'name' : componenet}]
         # We have to create/map Trac users to GitHub usernames before we can assign
         # them to tickets
-        if status == 'closed':
-            issue['state'] = 'closed'
-        # TODO: is this broken??
-        #if owner:
-        #    issue['assignee'] = author_mapping(owner)
-        if reporter:
-            issue['user'] = author_mapping(reporter)
-        if created_at:
-            issue['created_at'] = epoch_to_iso(created_at)
-        if updated_at:
-            issue['updated_at'] = epoch_to_iso(updated_at)
+        if owner:
+            issue['assignee'] = author_mapping(owner)['login']
         issue['labels'] = []
         # We don't migrate keywords and did not use severity.
         #if keywords:
@@ -375,33 +366,37 @@ if __name__ == '__main__':
                 type_ = 'bug'  # convert to GH's default label.
             issue['labels'].append({'name': type_})
 
-        # Save issue
-        # NOTE: we cannot set the issue number when creating.
-        try:
-            result = github.issues(data=issue)
-            logging.debug('New issue no.: {0} => {1}'.format(tid, result['number']))
-        except ValueError as e:
-            logging.error(e)  # TEMPORARY
-            continue
+        issue['body'] += u'\n\n<ul><li>이슈 등록시간: {0}</li>\n'.format(epoch_to_iso(created_at))
+        issue['body'] += u'<li>마지막 수정시간: {0}</li></ul>\n'.format(epoch_to_iso(updated_at))
 
         # Add comments
-        comment_data = []
+        comment_data = [u'<table class="trac-migrated-comments">']
         comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
         for author, body, timestamp in comments:
             body = body.strip()
             if body:
-                # Replace the commit ID with git one
                 body = rev_mapping.convert(body)
-                # prefix comment with author as git doesn't keep them separate
-                if author:
-                    body = "%s: %s" % (author, body)
                 if timestamp:
                     timestamp = epoch_to_iso(timestamp)
                 logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\r\n', u'\\n').replace(u'\n', u'\\n')))
-                comment_data.append({'user' : author_mapping(author), 'body' : body, \
-                                     'created_at' : timestamp, 'updated_at' : timestamp})
+                # Don't worry about escaping--GitHub will handle these with Markdown formatter.
+                comment_data.append(u'<tr><th style="text-align:left">Comment by {0} at {1}</th></tr>'.format(
+                    author_mapping(author)['login'], timestamp
+                ))
+                comment_data.append(u'<tr><td>{0}</td></tr>'.format(body))
+        comment_data.append(u'</table>')
+        issue['body'] += u'\n' + u'\n'.join(comment_data)
 
-        if comment_data:
-            github.issue_comments(tid, data=comment_data)
+        # Save the issue.
+        # NOTE: we cannot set the issue number when creating.
+        try:
+            result = github.issues(data=issue)
+            logging.debug('New issue no.: {0} => {1}'.format(tid, result['number']))
+            if status == 'closed':
+                # Unfortunately, we should use another query to close it.
+                github.issues(result['number'], data={'state': 'closed'})
+        except ValueError as e:
+            logging.error(e)  # TEMPORARY
+            continue
 
     trac.close()
