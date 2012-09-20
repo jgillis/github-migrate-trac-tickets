@@ -125,6 +125,28 @@ def epoch_to_iso(x):
     iso_ts = datetime.fromtimestamp(x / 1e6).isoformat()
     return iso_ts
 
+def convert_wikiformat(text):
+    pieces = []
+    in_pre = False
+    for line in text.splitlines():
+        line = line.strip()
+
+        if line.startswith(u'=') and not in_pre:
+            depth = len(line.split(u' ')[0])
+            line = u'#' * depth + line.strip(u'=')
+        elif line.startswith(u'{{{'):
+            line = line.lstrip('{')
+            in_pre = True
+        elif line.endswith(u'}}}'):
+            line = u'    ' + line.rstrip('}')
+            in_pre = False
+        if in_pre:
+            line = u'    ' + line
+        else:
+            line = line.replace('[[br]]', '<br>')
+        pieces.append(line)
+    return u'\n'.join(pieces)
+
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
 if __name__ == '__main__':
     usage = """
@@ -303,7 +325,7 @@ if __name__ == '__main__':
                 state = 'open'
             milestone = {'title': name,
                          'state': state,
-                         'description': description,
+                         'description': convert_wikiformat(description),
                          }
             if due:
                 milestone['due_on'] = epoch_to_iso(due)
@@ -332,7 +354,7 @@ if __name__ == '__main__':
             milestone = milestone.strip()
         issue = {'title': summary}
         if description:
-            issue['body'] = rev_mapping.convert(description)
+            issue['body'] = convert_wikiformat(rev_mapping.convert(description))
         if milestone:
             m = milestone_id.get(milestone)
             if m:
@@ -371,19 +393,22 @@ if __name__ == '__main__':
 
         # Add comments
         comment_data = [u'<table class="trac-migrated-comments">']
-        comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
-        for author, body, timestamp in comments:
+        comment_count = 0
+        for author, body, timestamp in trac.sql('SELECT author, newvalue, time AS body '
+                                                'FROM ticket_change WHERE field="comment" AND ticket=%s' % tid):
             body = body.strip()
-            if body:
-                body = rev_mapping.convert(body)
-                if timestamp:
-                    timestamp = epoch_to_iso(timestamp)
-                logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\r\n', u'\\n').replace(u'\n', u'\\n')))
-                # Don't worry about escaping--GitHub will handle these with Markdown formatter.
-                comment_data.append(u'<tr><th style="text-align:left">Comment by {0} at {1}</th></tr>'.format(
-                    author_mapping(author)['login'], timestamp
-                ))
-                comment_data.append(u'<tr><td>{0}</td></tr>'.format(body))
+            if not body:
+                continue
+            comment_count += 1
+            body = convert_wikiformat(rev_mapping.convert(body))
+            if timestamp:
+                timestamp = epoch_to_iso(timestamp)
+            logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\r\n', u'\\n').replace(u'\n', u'\\n')))
+            # Don't worry about escaping--GitHub will handle these with Markdown formatter.
+            comment_data.append(u'<tr><th style="text-align:left">Comment {2} by {0} at {1}</th></tr>'.format(
+                author_mapping(author)['login'], timestamp, comment_count
+            ))
+            comment_data.append(u'<tr><td>\n{0}\n</td></tr>'.format(body))
         comment_data.append(u'</table>')
         issue['body'] += u'\n' + u'\n'.join(comment_data)
 
