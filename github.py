@@ -72,7 +72,7 @@ class GitHub(object):
                 if err_reason == 'already_exists':
                     raise AlreadyExists('Already exists: {0[resource]}, {0[field]}'.format(err_info['errors'][0]))
                 elif err_reason == 'missing':
-                    raise DoesNotExist('Missing resource: {0[resource]}'.format(err_info['errors'][0]))
+                    raise DoesNotExist('Missing resource: {0[resource]}, {0[value]}'.format(err_info['errors'][0]))
                 elif err_reason == 'invalid':
                     raise ValueError('Invalid field: {0[field]}'.format(err_info['errors'][0]))
                 elif err_reason == 'missing_field':

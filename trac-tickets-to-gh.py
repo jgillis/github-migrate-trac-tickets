@@ -202,14 +202,75 @@ if __name__ == '__main__':
     #    if username:
     #        username = username.split(',')[0].strip() # username returned is tuple like: ('phred',)
     #        logging.debug("Trac ticket owner: %s" % username)
-    
+
+    def parse_keywords(keywords):
+        if isinstance(keywords, tuple):
+            keywords = ','.join(keywords)
+        if ',' in keywords:
+            keywords = map(lambda k: k.strip(), keywords.split(','))
+        else:
+            keywords = keywords.split(' ')
+        for kwd in keywords:
+            if not kwd.strip():
+                continue
+            yield kwd
+
     # Get GitHub labels; we'll merge Trac components into them
-    
-    #logging.info("Getting existing GitHub labels...")
-    #labels = {}
-    #for label in github.labels():
-    #    labels[label['name']] = label['url'] # ignoring 'color'
-    #    logging.debug("label name=%s" % label['name'])
+    logging.info("Getting existing GitHub labels...")
+    gh_labels = set()
+    for label in github.labels():
+        gh_labels.add(label['name'])
+    logging.info("Getting the set of labels in Trac....")
+    trac_labels = set()
+    trac_label_colors = {
+        'resolution': {
+            'fixed': '228b22',
+            'wontfix': 'bebebe',
+            'duplicate': 'c8c8c8',
+            'invalid': 'aaaaaa',
+            'worksforme': '008c8c',
+            'reqconfirm': 'e16a9d',
+        },
+        'priority': {
+            'blocker': '800000',
+            'critical': 'a52a2a',
+            'major': 'b22222',
+            'minor': 'b90000',
+            'trivial': 'cd5c5c',
+        },
+        'severity': {
+            # Textcube did not use this.
+        },
+        'ticket_type': {
+            'defect': '9400d3',
+            'enhancement': '0064ff',
+        },
+    }
+    trac_label_types = {}
+    for type_, name, value in trac.sql("SELECT type, name, value FROM enum"):
+        if name == 'defect': continue  # exception: this is mapped to "bug"
+        trac_label_types[name] = type_  # reverse mapping
+        trac_labels.add(name)
+    # Keywords in Textcube Trac has no clean rules and are too diverged.
+    # We won't migrate them.
+    #for keywords in trac.sql("SELECT keywords FROM ticket"):
+    #    if keywords is None:
+    #        continue
+    #    for kwd in parse_keywords(keywords):
+    #        trac_labels.add(kwd)
+    for name in (gh_labels | trac_labels):
+        logging.debug(u"label name={0}".format(name))
+    logging.info("Adding undefine labels to GitHub...")
+    # Add (undefined) labels
+    for name in (trac_labels - gh_labels):
+        try:
+            color = trac_label_colors[trac_label_types[name]][name]
+        except KeyError:
+            color = 'e8e8e8'
+        github.labels(data={
+            'name': name,
+            'color': color,
+        })
 
     # == Milestone Migration ==
     # Get any existing GitHub milestones so we can merge Trac into them.
@@ -299,17 +360,21 @@ if __name__ == '__main__':
         if updated_at:
             issue['updated_at'] = epoch_to_iso(updated_at)
         issue['labels'] = []
-        if keywords:
-            for keyword in map(lambda k: k.strip(), keywords.split(',')):
-                issue['labels'].append({'name': keyword})
-        if severity:
-            issue['labels'].append({'name': severity})
+        # We don't migrate keywords and did not use severity.
+        #if keywords:
+        #    for keyword in parse_keywords(keywords):
+        #        issue['labels'].append({'name': keyword})
+        #if severity:
+        #    issue['labels'].append({'name': severity})
         if priority:
             issue['labels'].append({'name': priority})
         if resolution:
             issue['labels'].append({'name': resolution})
         if type_:
+            if type_ == 'defect':
+                type_ = 'bug'  # convert to GH's default label.
             issue['labels'].append({'name': type_})
+
         # Save issue
         # NOTE: we cannot set the issue number when creating.
         try:
@@ -318,6 +383,7 @@ if __name__ == '__main__':
         except ValueError as e:
             logging.error(e)  # TEMPORARY
             continue
+
         # Add comments
         comment_data = []
         comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
