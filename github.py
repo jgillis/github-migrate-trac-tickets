@@ -1,5 +1,5 @@
 import base64
-import urllib2
+import urllib2, urlparse
 import logging
 try:
     import json
@@ -35,6 +35,7 @@ class GitHub(object):
         url = self.url + path
         if self.dry_run and data is not None:
             return
+        logger.debug('Requesting url {0}'.format(url))
         req = urllib2.Request(url)
         req.add_header("Authorization", "Basic %s" % self.auth)
         try:
@@ -44,7 +45,36 @@ class GitHub(object):
             else:
                 res = urllib2.urlopen(req)
             # TODO: check rate-limit by response headers: X-RateLimit-Limit & X-RateLimit-Remaining
-            return json.load(res)
+            logger.debug('  remaining rate limit: {0}'.format(res.info().getheader('X-RateLimit-Remaining')))
+
+            # Pagination support
+            paging = res.info().getheader('Link')
+            if paging:
+                assert data is None  # Assume query reuqest.
+                logger.debug('  this request returns multiple pages.')
+                items = json.load(res)
+                while True:
+                    last_page = None
+                    pages = paging.split(',')
+                    for page_url, rel in map(lambda p: p.split(';'), pages):
+                        page_url = page_url[1:-1]           # strip '<' and '>
+                        rel = rel.split('=')[1].strip('"')  # parse rel="next" or rel="last"
+                        if rel == 'next':
+                            next_page = urlparse.parse_qs(page_url.split('?')[1])['page'][0]
+                            logger.debug('  requesting page {0} at {1}'.format(next_page, page_url))
+                            req = urllib2.Request(page_url)
+                            req.add_header("Authorization", "Basic %s" % self.auth)
+                            res = urllib2.urlopen(req)
+                            items.extend(json.load(res))
+                            paging = res.info().getheader('Link')
+                        elif rel == 'last':
+                            last_page = urlparse.parse_qs(page_url.split('?')[1])['page'][0]
+                    assert last_page is not None
+                    if last_page == next_page:
+                        break
+                return items
+            else:
+                return json.load(res)
         except urllib2.HTTPError as e:
             if e.code == 422:
                 err_info = json.loads(e.read())
@@ -58,7 +88,7 @@ class GitHub(object):
                     raise ValueError('Invalid field: {0[field]}'.format(err_info['errors'][0]))
                 elif err_reason == 'missing_field':
                     raise ValueError('Missing field: {0[field]}'.format(err_info['errors'][0]))
-            raise RuntimeError("HTTPERror on url=%s e=%s" % (url, e))
+            raise RuntimeError("HTTPError on url=%s e=%s" % (url, e))
         except IOError as e:
             raise RuntimeError("IOError on url=%s e=%s" % (url, e))
 
@@ -73,13 +103,13 @@ class GitHub(object):
             path += '/' + str(id_)
         return self.access(path, query=query, data=data)
 
-    def issue_comments(self, id_, query=None, data=None):
+    def issue_comments(self, ticket_id, query=None, data=None):
         """Get comments for a ticket by its number or POST a comment with data.
         Example: issue_comments(5, data={'body': 'Is decapitated'})
         """
         # This call has no way to get a single comment
         #TODO: this is BROKEN
-        return self.access('issues/%d/comments' % id_, query=query, data=data)
+        return self.access('issues/%d/comments' % ticket_id, query=query, data=data)
 
     def labels(self, query=None, data=None):
         """Get labels or POST a label with data.

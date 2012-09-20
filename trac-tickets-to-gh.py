@@ -165,7 +165,7 @@ if __name__ == '__main__':
     if options.quiet:
         logging.basicConfig(level=logging.INFO, format='%(levelname)9s: %(message)s')
     else:
-        logging.basicConfig(level=logging.DEBUG, format='%(levelname)9js: %(message)s')
+        logging.basicConfig(level=logging.DEBUG, format='%(levelname)9s: %(message)s')
 
     if not options.revmap_files:
         parser.error('You must specify at least one revision mapping file. (--revmap-files)')
@@ -210,30 +210,31 @@ if __name__ == '__main__':
     #for label in github.labels():
     #    labels[label['name']] = label['url'] # ignoring 'color'
     #    logging.debug("label name=%s" % label['name'])
-    
+
+    # == Milestone Migration ==
     # Get any existing GitHub milestones so we can merge Trac into them.
     # We need to reference them by numeric ID in tickets.
+    logging.info("Getting existing GitHub milestones...")
+    milestone_id = {}
+    for m in github.milestones():
+        milestone_id[m['title']] = m['number']
+        logging.debug("milestone (open)   title={0}".format(m['title']))
     # API returns only 'open' issues by default, have to ask for closed like:
     # curl -u 'USER:PASS' https://api.github.com/repos/USERNAME/REPONAME/milestones?state=closed
-    
-    # Assume no milestones exist in github
-    #logging.info("Getting existing GitHub milestones...")
-    milestone_id = {}
-    #for m in github.milestones():
-    #    milestone_id[m['title']] = m['number']
-    #    logging.debug("milestone (open)   title=%s" % m['title'])
-    #for m in github.milestones(query='state=closed'):
-    #    milestone_id[m['title']] = m['number']
-    #    logging.debug("milestone (closed) title=%s" % m['title'])
-    
-    # We have no way to set the milestone closed date in GH.
-    # The 'due' and 'completed' are long ints representing datetimes.
+    for m in github.milestones(query='state=closed'):
+        milestone_id[m['title']] = m['number']
+        logging.debug("milestone (closed) title={0}".format(m['title']))
 
+    # We have no way to set the milestone closed date in GitHub.
+    # The 'due' and 'completed' are long ints representing datetimes.
     logging.info("Migrating Trac milestones to GitHub...")
     milestones = trac.sql('SELECT name, description, due, completed FROM milestone')
     for name, description, due, completed in milestones:
         name = name.strip()
-        logging.debug("milestone name=%s due=%s completed=%s" % (name, due, completed))
+        if name in milestone_id:
+            logging.warn("milestone {0} already exists; using it instead of migrated one.".format(name))
+            continue
+        logging.debug("milestone {0} due={1} completed={2}".format(name, due, completed))
         if name and name not in milestone_id:
             if completed:
                 state = 'closed'
@@ -245,22 +246,19 @@ if __name__ == '__main__':
                          }
             if due:
                 milestone['due_on'] = epoch_to_iso(due)
-            logging.debug("milestone: %s" % milestone)
+            logging.debug("milestone: {0}".format(milestone))
             if options.dry_run:
                 continue
             try:
                 gh_milestone = github.milestones(data=milestone)
                 milestone_id[name] = gh_milestone['number']
             except AlreadyExists:
-                # TODO: Get the number of existing milestone.
-                #       Unfortunately, Github API does not return the "number"
-                #       property of the duplicate.  We need to retrieve the
-                #       whole list and find out by ourselves, but it consume
-                #       the valuable rate limit. :(
+                # NOTE: Unfortunately, API does not return the "number"
+                #       property of the duplicate.  We work-around this problem
+                #       by prefetching existing milestone objects above.
                 pass
 
-    # Copy Trac tickets to GitHub issues, keyed to milestones above
-
+    # == Ticket Migration ==
     tickets = trac.sql('SELECT id, summary, description , owner, milestone, component, status, time, changetime, reporter, keywords, severity, priority, resolution, type FROM ticket ORDER BY id') # LIMIT 5
     for tid, summary, description, owner, milestone, component, status, \
              created_at, updated_at, reporter, keywords, severity, priority, resolution, type in tickets:
@@ -312,7 +310,12 @@ if __name__ == '__main__':
             issue['labels'].append({'name' : type})
         # Save issue
         # NOTE: we cannot set the issue number when creating.
-        github.issues(data=issue)
+        try:
+            result = github.issues(data=issue)
+            logging.debug('New issue no.: {0} => {1}'.format(tid, result['number']))
+        except ValueError as e:
+            logging.error(e)  # TEMPORARY
+            continue
         # Add comments
         comment_data = []
         comments = trac.sql('SELECT author, newvalue, time AS body FROM ticket_change WHERE field="comment" AND ticket=%s' % tid)
