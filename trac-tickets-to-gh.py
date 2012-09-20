@@ -18,7 +18,7 @@ import logging
 from optparse import OptionParser
 import sqlite3
 import re
-import getpass from getpass
+from getpass import getpass
 from itertools import chain
 import subprocess
 from collections import defaultdict, namedtuple
@@ -156,7 +156,7 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
     try:
-        [trac_db_path, github_username, github_repo] = args
+        trac_db_path, github_username, github_repo = args
     except ValueError:
         parser.error('Wrong number of arguments')
     if not '/' in github_repo:
@@ -187,7 +187,7 @@ if __name__ == '__main__':
         from github_json import GitHubJson
         github = GitHubJson(github_repo, dry_run=options.dry_run)
     else:
-        github_password = getpass('Password for github user {0}'.format(github_username))
+        github_password = getpass('Password for user {0}: '.format(github_username))
         github = GitHub(github_username, github_password, github_repo,
                         dry_run=options.dry_run)
 
