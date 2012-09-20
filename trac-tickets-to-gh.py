@@ -18,6 +18,7 @@ import logging
 from optparse import OptionParser
 import sqlite3
 import re
+import getpass from getpass
 from itertools import chain
 import subprocess
 from collections import defaultdict, namedtuple
@@ -127,12 +128,12 @@ def epoch_to_iso(x):
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
 if __name__ == '__main__':
     usage = """
-      %prog [options] trac_db_path github_username github_password github_repo
+      %prog [options] trac_db_path github_username github_repo
 
       The path might be something like "/tmp/trac.db"
       The github_repo combines user or organization and specific repo like "myorg/myapp"
 
-      To test on local machines, use --json flag and give fake github username, password, and repository path.
+      To test on local machines, use --json flag and give fake github username and repository path.
       You must delete the target path if it already exists.
     """
     parser = OptionParser(usage=usage)
@@ -155,7 +156,7 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
     try:
-        [trac_db_path, github_username, github_password, github_repo] = args
+        [trac_db_path, github_username, github_repo] = args
     except ValueError:
         parser.error('Wrong number of arguments')
     if not '/' in github_repo:
@@ -186,6 +187,7 @@ if __name__ == '__main__':
         from github_json import GitHubJson
         github = GitHubJson(github_repo, dry_run=options.dry_run)
     else:
+        github_password = getpass('Password for github user {0}'.format(github_username))
         github = GitHub(github_username, github_password, github_repo,
                         dry_run=options.dry_run)
 
