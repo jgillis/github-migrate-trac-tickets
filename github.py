@@ -42,7 +42,6 @@ class GitHub(object):
             # Pagination support
             paging = res.info().getheader('Link')
             if paging:
-                assert data is None  # Assume query reuqest.
                 logger.debug('  this request returns multiple pages.')
                 items = json.load(res)
                 while True:
@@ -54,7 +53,7 @@ class GitHub(object):
                         if rel == 'next':
                             next_page = urlparse.parse_qs(page_url.split('?')[1])['page'][0]
                             logger.debug('  requesting page {0} at {1}'.format(next_page, page_url))
-                            res = self._access(page_url)
+                            res = self._access(page_url, data)
                             items.extend(json.load(res))
                             paging = res.info().getheader('Link')
                         elif rel == 'last':
@@ -69,7 +68,7 @@ class GitHub(object):
             if e.code == 422:
                 err_info = json.loads(e.read())
                 err_reason = err_info['errors'][0]['code']
-                logger.debug('api validation error: {0}'.format(json.dumps(err_info)))
+                logger.debug('  api validation error: {0}'.format(json.dumps(err_info)))
                 if err_reason == 'already_exists':
                     raise AlreadyExists('Already exists: {0[resource]}, {0[field]}'.format(err_info['errors'][0]))
                 elif err_reason == 'missing':
