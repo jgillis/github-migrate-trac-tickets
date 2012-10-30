@@ -373,6 +373,8 @@ if __name__ == '__main__':
         #    issue['labels'] = [{'name' : componenet}]
         # We have to create/map Trac users to GitHub usernames before we can assign
         # them to tickets
+        issue['creator'] = author_mapping(reporter)['login']
+        
         if owner:
             issue['assignee'] = author_mapping(owner)['login']
         issue['labels'] = []
