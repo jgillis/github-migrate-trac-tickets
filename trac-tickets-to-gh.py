@@ -58,10 +58,10 @@ class AuthorMapping(object):
                 for line in file_.readlines():
                     if not line.strip():
                         continue
-                    match = re.compile(r'^([\w\s\@&\.\d]*) = (\w*) <(.*)>$').search(line)
+                    match = re.compile(r'^([\(\w\s\@&\.\d]*) = (\w*)$').search(line)
                     if not match:
                         raise ValueError, 'Author line not in correct format: "%s"' % line
-                    svn_user, github_user, email = match.groups()
+                    svn_user, github_user = match.groups()
                     self.mapping[svn_user.strip()] = {"login" : github_user.strip()}
                 # Ignore email for now, seems username is eough
 
@@ -70,9 +70,9 @@ class AuthorMapping(object):
                 return {"login" : username}
         # just take 1st user if given a list
         username = username.split(',')[0].strip()
-        #if not username in self.mapping:
+        if not username in self.mapping:
         #    print "%s = DMWMBot <USER@DOMAIN>" % username
-        #    return {"login" : username}
+            return {"login" : "None"}
         # Throw if author not in mapping
         return self.mapping[username]
 
