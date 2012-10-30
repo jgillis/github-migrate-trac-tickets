@@ -122,7 +122,7 @@ class RevisionMapping(object):
         return self.rx_revlink.sub(self._sub, text)
 
 def epoch_to_iso(x):
-    iso_ts = datetime.fromtimestamp(x / 1e6).isoformat()
+    iso_ts = datetime.fromtimestamp(x).isoformat()
     return iso_ts
 
 def convert_wikiformat(text):
