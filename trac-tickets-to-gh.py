@@ -390,8 +390,8 @@ if __name__ == '__main__':
                 type_ = 'bug'  # convert to GH's default label.
             issue['labels'].append({'name': type_})
 
-        issue['body'] += u'\n\n<ul><li>이슈 등록시간: {0}</li>\n'.format(epoch_to_iso(created_at))
-        issue['body'] += u'<li>마지막 수정시간: {0}</li></ul>\n'.format(epoch_to_iso(updated_at))
+        issue['created_at'] = epoch_to_iso(created_at).split(".")[0]+"Z"
+        issue['updated_at'] = epoch_to_iso(updated_at).split(".")[0]+"Z"
 
         # Add comments
         comment_data = [u'<table class="trac-migrated-comments">']
