@@ -128,6 +128,7 @@ def epoch_to_iso(x):
 def convert_wikiformat(text):
     pieces = []
     in_pre = False
+    text = text.replace("\\r","\n")
     for line in text.splitlines():
         line = line.strip()
 
