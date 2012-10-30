@@ -355,6 +355,8 @@ if __name__ == '__main__':
         issue = {'title': summary}
         if description:
             issue['body'] = convert_wikiformat(rev_mapping.convert(description))
+        else:
+            issue['body'] = ''
         if milestone:
             m = milestone_id.get(milestone)
             if m:
