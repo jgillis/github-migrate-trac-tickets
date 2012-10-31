@@ -79,13 +79,14 @@ class AuthorMapping(object):
 class RevisionMapping(object):
     def __init__(self, repo_list):
         self.mappings = {}
-        self.rx_revlink = re.compile(r'((^|\s)r|\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
+        self.rx_revlink = re.compile(r'((^|\s)r|(c|C)ommit |(r|R)evision |\[)(?P<id>([0-9a-f]{6,40})|([0-9]+))(/(?P<suffix>\w+))?\]?')
         for repo in repo_list:
             self.mappings[repo.name] = {}
             logging.info('Reading revision mapping for "{0}" from {1}'.format(repo.name, repo.rev_map_file))
             with open(repo.rev_map_file, 'r') as f:
                 for line in f.readlines():
                     src_id, git_id = line.split(' => ')
+                    git_id = git_id.rstrip()
                     self.mappings[repo.name][src_id] = git_id
                     if repo.type == 'hg' or repo.type == 'git':
                         # Add shorter keys for abbreviated SHA1 links.
