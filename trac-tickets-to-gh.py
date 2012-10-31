@@ -99,7 +99,7 @@ class RevisionMapping(object):
         src_id = match.group('id')
         repo_suffix = match.group('suffix')
         if repo_suffix is None:
-            repo_suffix = ''
+            repo_suffix = 'main'
         heuristic_tried = defaultdict(bool)
         while True:
             try:
@@ -109,12 +109,6 @@ class RevisionMapping(object):
             try:
                 git_id = mapping[src_id]
             except KeyError:
-                # ----- Textcube-specific -----
-                if src_id.isdigit() and not heuristic_tried['digit-is-svn']:
-                    repo_suffix = 'old_svn'
-                    heuristic_tried['digit-is-svn'] = True
-                    continue
-                # ----- End of Textcube-specific ----
                 return match.group(0)
             else:
                 return git_id
