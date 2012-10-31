@@ -120,28 +120,55 @@ def epoch_to_iso(x):
     iso_ts = datetime.fromtimestamp(x).isoformat()
     return iso_ts
 
-def convert_wikiformat(text):
+def convert_wikiformat(text,rev_mapping=None,title=False):
     pieces = []
     in_pre = False
-    text = text.replace("\\r","\n")
+    text = text.replace("\\r","")
+    text = text.replace('\\"','"')
+    # Links
+    in_pre_trigger = False
     for line in text.splitlines():
         line = line.strip()
-
         if line.startswith(u'=') and not in_pre:
             depth = len(line.split(u' ')[0])
             line = u'#' * depth + line.strip(u'=')
-        elif line.startswith(u'{{{'):
-            line = line.lstrip('{')
+        elif line.startswith(u'{{{') and not '}}' in line:
+            line = "```"  + ("\n" if len(line.lstrip('{'))!=0 else "") + line.lstrip('{')
             in_pre = True
-        elif line.endswith(u'}}}'):
-            line = u'    ' + line.rstrip('}')
-            in_pre = False
+        elif line.endswith(u'}}}') and not '{{{' in line:
+            line = u'' + line.rstrip('}') + ("\n" if len(line.rstrip('}'))!=0 else "") + "```"
+            in_pre_trigger = True
         if in_pre:
-            line = u'    ' + line
+            line = line.replace('\\\\','\\')
         else:
+            if not(title):
+              line = line.replace('>','\\>')
+              line = line.replace('<','\\<')
+            if rev_mapping is not None:
+              line = rev_mapping.convert(line)
+            line = re.sub("\[((^\])*?) ((^\])*?)\]",r"[\2](\1)",line)
+            line = re.sub("\[(http.*?)\]",r"\1",line)
+            line = re.sub("\[wiki:(.*?)\]",r"[\1](/casadi/casadi/\1)",line)
+            def repl(m):
+              branch = "master" if m.group("R") is None else rev_mapping.convert("["+m.group("R")+"]")
+              suffix = "" if m.group("L") is None else "#L" + m.group("L")
+              return "[" + m.group("C") + "](/casadi/casadi/blob/"+branch+"/"+m.group("C")+suffix+")"
+            line = re.sub("source:/trunk/(?P<C>[^@#\\b]*)(@(?P<R>\d+))?(#L(?P<L>[\d-]+))?",repl,line)
+            def repl(m):
+              s = m.group(1)
+              s = s.replace('\\>','>')
+              s = s.replace('\\<','<')
+              return "`"+s+"`"
+            line = re.sub("{{{(.*?)}}}?",repl,line) # inline escape
             line = line.replace('[[br]]', '<br>')
+        if in_pre_trigger:
+          in_pre = False
+          in_pre_trigger = False
         pieces.append(line)
-    return u'\n'.join(pieces)
+        
+    result = u'\n'.join(pieces)
+    result = re.sub("```\n#!(.*)",r"```\1",result)
+    return result
 
 # Warning: optparse is deprecated in python-2.7 in favor of argparse
 if __name__ == '__main__':
