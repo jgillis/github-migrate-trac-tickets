@@ -375,9 +375,9 @@ if __name__ == '__main__':
             description = description.strip()
         if milestone:
             milestone = milestone.strip()
-        issue = {'title': summary}
-        if description:
-            issue['body'] = convert_wikiformat(rev_mapping.convert(description))
+        issue = {'title': convert_wikiformat(summary,rev_mapping=rev_mapping,title=True)}
+        if description:  
+            issue['body'] = convert_wikiformat(description,rev_mapping=rev_mapping)
         else:
             issue['body'] = ''
         if milestone:
@@ -397,7 +397,7 @@ if __name__ == '__main__':
         # them to tickets
         issue['creator'] = author_mapping(reporter)['login']
         
-        if owner:
+        if owner and not(author_mapping(owner)['login']=='None'):
             issue['assignee'] = author_mapping(owner)['login']
         issue['labels'] = []
         # We don't migrate keywords and did not use severity.
@@ -415,29 +415,31 @@ if __name__ == '__main__':
                 type_ = 'bug'  # convert to GH's default label.
             issue['labels'].append({'name': type_})
 
+        issue['body'] += u'\n\n*Created by [{0}](/{0}) at: {1}*\n'.format(author_mapping(reporter)['login'],epoch_to_iso(created_at))
+        issue['body'] += u'*Last updated at: {0}*\n'.format(epoch_to_iso(updated_at))
+        
         issue['created_at'] = epoch_to_iso(created_at).split(".")[0]+"Z"
         issue['updated_at'] = epoch_to_iso(updated_at).split(".")[0]+"Z"
 
         # Add comments
-        comment_data = [u'<table class="trac-migrated-comments">']
         comment_count = 0
         for author, body, timestamp in trac.sql('SELECT author, newvalue, time AS body '
                                                 'FROM ticket_change WHERE field="comment" AND ticket=%s' % tid):
+            comment_data = []
             body = body.strip()
             if not body:
                 continue
             comment_count += 1
-            body = convert_wikiformat(rev_mapping.convert(body))
+            body = convert_wikiformat(body,rev_mapping=rev_mapping)
             if timestamp:
                 timestamp = epoch_to_iso(timestamp)
             logging.debug(u'  comment: {0}'.format(body[:70].replace(u'\r\n', u'\\n').replace(u'\n', u'\\n')))
             # Don't worry about escaping--GitHub will handle these with Markdown formatter.
-            comment_data.append(u'<tr><th style="text-align:left">Comment {2} by {0} at {1}</th></tr>'.format(
+            comment_data.append(u'*Comment {2} by [{0}](/{0}) at {1}*\n- - -'.format(
                 author_mapping(author)['login'], timestamp, comment_count
             ))
-            comment_data.append(u'<tr><td>\n{0}\n</td></tr>'.format(body))
-        comment_data.append(u'</table>')
-        issue['body'] += u'\n' + u'\n'.join(comment_data)
+            comment_data.append(body)
+            issue['body'] += u'\n- - -\n' + u'\n'.join(map(lambda x: '> ' + x,u'\n'.join(comment_data).split(u'\n'))) + u'\n'
 
         # Save the issue.
         # NOTE: we cannot set the issue number when creating.
