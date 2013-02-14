@@ -146,7 +146,7 @@ def convert_wikiformat(text,rev_mapping=None,title=False):
               line = line.replace('<','\\<')
             if rev_mapping is not None:
               line = rev_mapping.convert(line)
-            line = re.sub("\[((^\])*?) ((^\])*?)\]",r"[\2](\1)",line)
+            line = re.sub("\[([^\] ]*?) ([^\]]*?)\]",r"[\2](\1)",line)
             line = re.sub("\[(http.*?)\]",r"\1",line)
             line = re.sub("\[wiki:(.*?)\]",r"[\1](/casadi/casadi/\1)",line)
             def repl(m):
