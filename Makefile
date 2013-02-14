@@ -41,9 +41,6 @@ gitsvn/log.txt: gitsvn authors.txt
 revision.map: gitsvn/log.txt gitsvn
 	perl -pe 'if (/r(\d+) = ([0-9a-f]+)/) { $$_="$$1 => $$2\n"; }' $< | grep "=>" | grep -v http | sort -n > $@
 	
-github-migrate-trac-tickets:
-	git clone git@github.com:jgillis/github-migrate-trac-tickets.git
-	
 $(PROJECT).wiki:
 	git clone git@github.com:$(GITHUBREPO).wiki.git
 	
